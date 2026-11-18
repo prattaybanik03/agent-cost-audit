@@ -12,6 +12,7 @@ from aca.policies import load_run_config
 from aca.pricing import load_prices
 from aca.providers.anthropic import AnthropicProvider, conservative_token_estimate
 from aca.providers.mock import MockProvider, estimate_tokens
+from aca.report import inject_readme, write_report
 from aca.runner import run_benchmark
 from aca.sandbox import DEFAULT_IMAGE, build_image, make_sandbox
 from aca.tasks import TASKS_ROOT, load_tasks, reference_code
@@ -72,7 +73,7 @@ def run(
     policies: str = typer.Option(None, help="Comma-separated policy names. Default: all."),
     reps: int = typer.Option(None, help="Repetitions. Default: from run.yaml."),
     cap: float = typer.Option(None, help="Budget cap in USD. Default: from run.yaml."),
-    workers: int = typer.Option(6, help="Task runs in parallel."),
+    workers: int = typer.Option(10, help="Task runs in parallel."),
     sandbox: str = typer.Option("auto", help="auto, docker or subprocess"),
     out: Path = RAW_PATH,
     run_config: Path = RUN_PATH,
@@ -131,6 +132,21 @@ def run(
     if summary.stopped_reason:
         typer.echo(f"Stopped early. {summary.stopped_reason}")
         raise typer.Exit(code=2)
+
+
+@app.command()
+def report(
+    run_dir: Path = typer.Argument(..., help="A run folder, e.g. results/raw/<run_id>"),
+    out: Path = Path("results"),
+    readme: Path = typer.Option(None, help="Also copy the tables into this README."),
+) -> None:
+    """Write summary.csv, report.md and chart.png from one run's raw logs."""
+    paths = write_report(run_dir, out)
+    for name, path in paths.items():
+        typer.echo(f"{name:<8} {path}")
+    if readme is not None:
+        inject_readme(readme, paths["tables"].read_text(encoding="utf-8"))
+        typer.echo(f"readme   {readme} (results section replaced)")
 
 
 @app.command("sandbox-build")

@@ -1,9 +1,11 @@
 # One benchmark run. Every policy uses the same tasks, the same loop and the same system prompt.
 
-budget_cap_usd: 40.00   # hard cap for the whole run; the run stops before a call that could pass it
+budget_cap_usd: 75.00   # hard cap for the whole run; the run stops before a call that could pass it
 repetitions: 5          # runs per task and policy
 max_fix_attempts: 2
-max_tokens: 16000       # output allowance per call
+# Output allowance per call, thinking included. Calls are streamed, so a large value is safe.
+# A 16,000 limit cut off Haiku mid-answer on the hardest task in the smoke test.
+max_tokens: 64000
 effort: medium          # the same effort setting for every model and policy
 
 # Short names used by the policies below.

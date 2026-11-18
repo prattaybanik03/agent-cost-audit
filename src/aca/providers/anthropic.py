@@ -82,14 +82,17 @@ class AnthropicProvider:
         if cache:
             block["cache_control"] = {"type": "ephemeral"}
 
+        # Streamed so a large output allowance cannot hit an HTTP timeout. Only the final
+        # message is used; latency is the time to the complete reply.
         started = time.perf_counter()
-        response = self._client.messages.create(
+        with self._client.messages.stream(
             model=model,
             max_tokens=max_tokens,
             system=[block],
             messages=messages,
             output_config={"effort": self.effort},
-        )
+        ) as stream:
+            response = stream.get_final_message()
         latency_ms = (time.perf_counter() - started) * 1000
 
         return Response(

@@ -35,6 +35,10 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
 
+[tool.ruff.lint.flake8-bugbear]
+# Typer declares CLI parameters through these calls in argument defaults.
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",

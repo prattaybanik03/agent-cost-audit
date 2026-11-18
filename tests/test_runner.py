@@ -106,14 +106,16 @@ def test_call_log_holds_no_prompt_text(tmp_path, config, prices, monkeypatch) ->
 
 
 def test_budget_cap_stops_the_run_cleanly(tmp_path, config, prices, monkeypatch) -> None:
-    # One Opus call reserves about $0.34: its full 16,000-token output allowance plus the prompt
-    # at the dearest rate. A $0.40 cap therefore admits calls until about $0.06 has been spent.
-    summary, _ = run(tmp_path, config, prices, monkeypatch, cap=0.40, workers=1)
+    # A call reserves its full output allowance plus the prompt at the dearest rate. A cap just
+    # above one Opus reservation admits calls until about $0.06 has actually been spent.
+    one_call = prices.worst_case_usd("claude-opus-5-5", 2500, config.max_tokens)
+    cap = one_call + 0.06
+    summary, _ = run(tmp_path, config, prices, monkeypatch, cap=cap, workers=1)
     out = tmp_path / "test-run"
 
     assert summary.stopped_reason and summary.stopped_reason.startswith("budget")
     assert 0 < summary.completed < summary.planned
-    assert summary.spent_usd <= 0.40
+    assert summary.spent_usd <= cap
     task_runs = read_jsonl(out / "task_runs.jsonl")
     assert any(r["status"] == "aborted" for r in task_runs)
     meta = json.loads((out / "run_meta.json").read_text(encoding="utf-8"))

@@ -26,14 +26,35 @@ def api_usage(**fields):
     return SimpleNamespace(**defaults)
 
 
+class FakeStream:
+    def __init__(self, response):
+        self.response = response
+        self.closed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.closed = True
+        return False
+
+    def get_final_message(self):
+        return self.response
+
+
 class FakeMessages:
+    """Mimics `client.messages.stream(...)`. `create` is deliberately absent."""
+
     def __init__(self, response):
         self.response = response
         self.requests: list[dict] = []
+        self.streams: list[FakeStream] = []
 
-    def create(self, **kwargs):
+    def stream(self, **kwargs):
         self.requests.append(kwargs)
-        return self.response
+        stream = FakeStream(self.response)
+        self.streams.append(stream)
+        return stream
 
 
 def fake_client(text="```python\nx = 1\n```", usage=None, model="claude-haiku-5-5"):
@@ -92,6 +113,20 @@ def test_response_maps_text_model_usage_and_latency() -> None:
     assert response.usage.output_tokens == 900
     assert response.latency_ms >= 0
     assert response.stop_reason == "end_turn"
+
+
+def test_calls_are_streamed_and_the_stream_is_closed() -> None:
+    client = fake_client()
+    call(AnthropicProvider(effort="medium", client=client), cache=False)
+    assert len(client.messages.streams) == 1
+    assert client.messages.streams[0].closed
+
+
+def test_truncated_reply_keeps_its_stop_reason() -> None:
+    client = fake_client()
+    client.messages.response.stop_reason = "max_tokens"
+    response = call(AnthropicProvider(effort="medium", client=client), cache=False)
+    assert response.stop_reason == "max_tokens"
 
 
 def test_thinking_blocks_are_not_part_of_the_reply() -> None:
