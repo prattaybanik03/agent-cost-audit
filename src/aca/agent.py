@@ -44,6 +44,9 @@ TestRunner = Callable[[Task, str], TestResult]
 TokenEstimator = Callable[[str], int]
 """Estimates prompt tokens before a call. Used only for the budget check."""
 
+TestObserver = Callable[["TaskRun", str, int, str, str, "TestResult"], None]
+"""Called after each test run with (run, step, attempt, model_short, code, result)."""
+
 
 @dataclass
 class TaskRun:
@@ -116,6 +119,7 @@ class Agent:
         system: str,
         run_tests: TestRunner,
         estimate_tokens: TokenEstimator,
+        on_test: TestObserver | None = None,
     ) -> None:
         self.provider = provider
         self.config = config
@@ -125,6 +129,13 @@ class Agent:
         self.system = system
         self.run_tests = run_tests
         self.estimate_tokens = estimate_tokens
+        self.on_test = on_test
+
+    def _test(self, run: TaskRun, task: Task, step: str, attempt: int, short: str, code: str):
+        result = self.run_tests(task, code)
+        if self.on_test is not None:
+            self.on_test(run, step, attempt, short, code, result)
+        return result
 
     def run_task(self, task: Task, policy: Policy, *, run_id: str, rep: int) -> TaskRun:
         """Run one task under one policy. Raises `BudgetExceeded` if the cap would be passed."""
@@ -134,7 +145,7 @@ class Agent:
             plan = self._call(run, policy, "plan", 0, policy.plan, _plan_prompt(task))
             reply = self._call(run, policy, "write", 0, policy.write, _write_prompt(task, plan))
             code = extract_code(reply)
-            result = self.run_tests(task, code)
+            result = self._test(run, task, "write", 0, policy.write, code)
 
             for attempt, short in enumerate(policy.fix, start=1):
                 if result.passed:
@@ -144,7 +155,7 @@ class Agent:
                     run.escalations += 1
                 prompt = _fix_prompt(task, code, result.output)
                 code = extract_code(self._call(run, policy, "fix", attempt, short, prompt))
-                result = self.run_tests(task, code)
+                result = self._test(run, task, "fix", attempt, short, code)
 
             run.passed = result.passed
             run.timed_out = result.timed_out

@@ -6,9 +6,13 @@ import time
 from pathlib import Path
 
 import typer
+from dotenv import load_dotenv
 
 from aca.policies import load_run_config
 from aca.pricing import load_prices
+from aca.providers.anthropic import AnthropicProvider, conservative_token_estimate
+from aca.providers.mock import MockProvider, estimate_tokens
+from aca.runner import run_benchmark
 from aca.sandbox import DEFAULT_IMAGE, build_image, make_sandbox
 from aca.tasks import TASKS_ROOT, load_tasks, reference_code
 
@@ -16,6 +20,7 @@ app = typer.Typer(add_completion=False, no_args_is_help=True, help="Agent cost a
 
 PRICES_PATH = Path("config/prices.yaml")
 RUN_PATH = Path("config/run.yaml")
+RAW_PATH = Path("results/raw")
 
 
 @app.command()
@@ -48,6 +53,84 @@ def policies(run: Path = RUN_PATH, prices_path: Path = PRICES_PATH) -> None:
             f"{policy.name:<16}{policy.plan:<8}{policy.write:<8}"
             f"{' -> '.join(policy.fix):<18}{'yes' if policy.cache else 'no'}"
         )
+
+
+def _pick(names: str | None, available: list[str], what: str) -> list[str]:
+    if not names:
+        return available
+    chosen = [name.strip() for name in names.split(",") if name.strip()]
+    unknown = [name for name in chosen if name not in available]
+    if unknown:
+        raise typer.BadParameter(f"Unknown {what}: {', '.join(unknown)}")
+    return chosen
+
+
+@app.command()
+def run(
+    provider: str = typer.Option("anthropic", help="anthropic or mock"),
+    tasks: str = typer.Option(None, help="Comma-separated task IDs. Default: all."),
+    policies: str = typer.Option(None, help="Comma-separated policy names. Default: all."),
+    reps: int = typer.Option(None, help="Repetitions. Default: from run.yaml."),
+    cap: float = typer.Option(None, help="Budget cap in USD. Default: from run.yaml."),
+    workers: int = typer.Option(6, help="Task runs in parallel."),
+    sandbox: str = typer.Option("auto", help="auto, docker or subprocess"),
+    out: Path = RAW_PATH,
+    run_config: Path = RUN_PATH,
+    prices_path: Path = PRICES_PATH,
+) -> None:
+    """Run the benchmark and write raw logs to results/raw/<run_id>/."""
+    load_dotenv()
+    config = load_run_config(run_config)
+    table = load_prices(prices_path)
+    all_tasks = load_tasks(TASKS_ROOT)
+    task_ids = _pick(tasks, [task.task_id for task in all_tasks], "task")
+    policy_names = _pick(policies, [policy.name for policy in config.policies], "policy")
+    if sandbox not in ("auto", "docker", "subprocess"):
+        raise typer.BadParameter("sandbox must be auto, docker or subprocess")
+    runner = make_sandbox(sandbox)  # type: ignore[arg-type]
+
+    if provider == "anthropic":
+        chosen = AnthropicProvider(effort=config.effort)
+        estimator = conservative_token_estimate
+    elif provider == "mock":
+        chosen = MockProvider()
+        estimator = estimate_tokens
+    else:
+        raise typer.BadParameter("provider must be anthropic or mock")
+
+    repetitions = reps or config.repetitions
+    selected_tasks = [task for task in all_tasks if task.task_id in task_ids]
+    selected_policies = [config.policy(name) for name in policy_names]
+    total = repetitions * len(selected_tasks) * len(selected_policies)
+    typer.echo(
+        f"Provider {provider}, sandbox {runner.name} "
+        f"(network {'blocked' if runner.isolates_network else 'NOT blocked'}), "
+        f"{len(selected_tasks)} tasks x {len(selected_policies)} policies x {repetitions} reps "
+        f"= {total} task runs, cap ${cap if cap is not None else config.budget_cap_usd:.2f}"
+    )
+
+    summary = run_benchmark(
+        provider=chosen,
+        config=config,
+        prices=table,
+        tasks=selected_tasks,
+        policies=selected_policies,
+        repetitions=repetitions,
+        sandbox=runner,
+        estimate_tokens=estimator,
+        out_root=out,
+        workers=workers,
+        budget_cap_usd=cap,
+        echo=typer.echo,
+    )
+
+    typer.echo(f"\nRun {summary.run_id}: {summary.completed}/{summary.planned} task runs complete")
+    typer.echo(f"Spent ${summary.spent_usd:.4f}. Raw logs: {summary.out_dir}")
+    for name, (passed, ran) in summary.passed_by_policy.items():
+        typer.echo(f"  {name:<16}{passed}/{ran} passed")
+    if summary.stopped_reason:
+        typer.echo(f"Stopped early. {summary.stopped_reason}")
+        raise typer.Exit(code=2)
 
 
 @app.command("sandbox-build")
