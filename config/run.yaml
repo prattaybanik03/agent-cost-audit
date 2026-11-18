@@ -1,0 +1,31 @@
+# One benchmark run. Every policy uses the same tasks, the same loop and the same system prompt.
+
+budget_cap_usd: 40.00   # hard cap for the whole run; the run stops before a call that could pass it
+repetitions: 5          # runs per task and policy
+max_fix_attempts: 2
+max_tokens: 16000       # output allowance per call
+effort: medium          # the same effort setting for every model and policy
+
+# Short names used by the policies below.
+models:
+  opus: claude-opus-5-5
+  sonnet: claude-sonnet-5-5
+  haiku: claude-haiku-5-5
+
+# Savings are reported against this policy.
+baseline: opus
+
+# plan / write: the model for that step.
+# fix: the model for each fix attempt, in order. Its length must equal max_fix_attempts.
+# cache: whether the shared system prompt is cached on every call.
+policies:
+  - {name: opus,          plan: opus,   write: opus,   fix: [opus, opus],     cache: false}
+  - {name: opus_cached,   plan: opus,   write: opus,   fix: [opus, opus],     cache: true}
+  - {name: sonnet,        plan: sonnet, write: sonnet, fix: [sonnet, sonnet], cache: false}
+  - {name: sonnet_cached, plan: sonnet, write: sonnet, fix: [sonnet, sonnet], cache: true}
+  - {name: haiku,         plan: haiku,  write: haiku,  fix: [haiku, haiku],   cache: false}
+  - {name: haiku_cached,  plan: haiku,  write: haiku,  fix: [haiku, haiku],   cache: true}
+  # Routed: the strongest model plans, the cheapest writes and gets one fix attempt,
+  # then the strongest takes over.
+  - {name: routed,        plan: opus,   write: haiku,  fix: [haiku, opus],    cache: false}
+  - {name: routed_cached, plan: opus,   write: haiku,  fix: [haiku, opus],    cache: true}

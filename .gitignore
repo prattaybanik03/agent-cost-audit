@@ -1,0 +1,32 @@
+# Agent instruction files stay local
+CLAUDE.md
+AGENTS.md
+.claude/
+agents/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Raw run logs (may contain prompts and model output)
+results/raw/
+
+# Local-only notes
+RECEIPT.md
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

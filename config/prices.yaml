@@ -1,0 +1,30 @@
+# Published API prices, in US dollars per million tokens.
+# Copied by hand from the provider's pricing page. Re-check before relying on them.
+source_url: https://platform.claude.com/docs/en/about-claude/pricing
+date_checked: 2026-11-19
+currency: USD
+
+models:
+  claude-opus-5-5:
+    input: 4.00
+    output: 20.00
+    cache_write_5m: 5.00
+    cache_write_1h: 8.00
+    cache_read: 0.20
+
+  claude-sonnet-5-5:
+    input: 2.00
+    output: 10.00
+    cache_write_5m: 2.50
+    cache_write_1h: 4.00
+    cache_read: 0.10
+
+  # The page lists a second, higher tier for prompts over 100,000 tokens.
+  # This benchmark never sends prompts that large, and pricing fails loudly if one appears.
+  claude-haiku-5-5:
+    input: 0.10
+    output: 0.50
+    cache_write_5m: 0.125
+    cache_write_1h: 0.20
+    cache_read: 0.01
+    max_prompt_tokens: 100000
