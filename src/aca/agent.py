@@ -20,8 +20,13 @@ from aca.providers.base import Message, Provider
 
 @dataclass(frozen=True)
 class Task:
+    """One workload task. Only `prompt` is ever sent to a model."""
+
     task_id: str
     prompt: str
+    test_code: str = ""
+    """The hidden pytest file. Used by the sandbox, never shown to the model."""
+    difficulty: str = ""
 
 
 @dataclass(frozen=True)

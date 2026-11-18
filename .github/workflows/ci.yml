@@ -30,6 +30,10 @@ jobs:
           uv run ruff check .
           uv run ruff format --check .
 
+      # Built so the Docker sandbox tests, including the no-network check, run in CI.
+      - name: Build sandbox image
+        run: docker build -t aca-sandbox:py312 sandbox
+
       # Tests use the mock provider only. No API key is configured or needed.
       - name: Test
         run: uv run pytest

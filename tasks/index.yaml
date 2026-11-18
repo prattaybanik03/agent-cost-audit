@@ -1,0 +1,12 @@
+# The workload: ten self-contained Python tasks. Order is the run order.
+tasks:
+  - {id: e1_interval_merge, difficulty: easy,   title: Interval merging}
+  - {id: e2_lru_cache,      difficulty: easy,   title: LRU cache}
+  - {id: e3_roman_numerals, difficulty: easy,   title: Roman numerals with strict validation}
+  - {id: m1_rate_limiter,   difficulty: medium, title: Token-bucket rate limiter}
+  - {id: m2_csv_validator,  difficulty: medium, title: CSV validator with typed errors}
+  - {id: m3_tokenizer,      difficulty: medium, title: Tokenizer for a small expression language}
+  - {id: m4_semver,         difficulty: medium, title: Semantic version parsing and ranges}
+  - {id: h1_expr_eval,      difficulty: hard,   title: Expression parser and evaluator}
+  - {id: h2_cron_next,      difficulty: hard,   title: Next run time for a cron expression}
+  - {id: h3_spreadsheet,    difficulty: hard,   title: Spreadsheet with formulas and cycle detection}

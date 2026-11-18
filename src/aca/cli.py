@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import typer
 
 from aca.policies import load_run_config
 from aca.pricing import load_prices
+from aca.sandbox import DEFAULT_IMAGE, build_image, make_sandbox
+from aca.tasks import TASKS_ROOT, load_tasks, reference_code
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="Agent cost audit.")
 
@@ -45,6 +48,45 @@ def policies(run: Path = RUN_PATH, prices_path: Path = PRICES_PATH) -> None:
             f"{policy.name:<16}{policy.plan:<8}{policy.write:<8}"
             f"{' -> '.join(policy.fix):<18}{'yes' if policy.cache else 'no'}"
         )
+
+
+@app.command("sandbox-build")
+def sandbox_build(dockerfile_dir: Path = Path("sandbox")) -> None:
+    """Build the Docker image that generated code is tested in."""
+    build_image(dockerfile_dir)
+    typer.echo(f"Built {DEFAULT_IMAGE}.")
+
+
+@app.command("tasks-verify")
+def tasks_verify(
+    sandbox: str = typer.Option("auto", help="auto, docker or subprocess"),
+    root: Path = TASKS_ROOT,
+) -> None:
+    """Check every task: the reference solution must pass and an empty solution must fail."""
+    if sandbox not in ("auto", "docker", "subprocess"):
+        raise typer.BadParameter("sandbox must be auto, docker or subprocess")
+    runner = make_sandbox(sandbox)  # type: ignore[arg-type]
+    network = "blocked" if runner.isolates_network else "NOT blocked"
+    typer.echo(f"Sandbox: {runner.name} (network {network})")
+    typer.echo(f"{'task':<20}{'difficulty':<12}{'reference':<12}{'empty':<10}{'seconds':>8}")
+
+    problems = 0
+    for task in load_tasks(root):
+        started = time.perf_counter()
+        reference = runner.run(task.test_code, reference_code(task.task_id, root))
+        elapsed = time.perf_counter() - started
+        empty = runner.run(task.test_code, "")
+        ok = reference.passed and not empty.passed
+        problems += not ok
+        typer.echo(
+            f"{task.task_id:<20}{task.difficulty:<12}"
+            f"{'pass' if reference.passed else 'FAIL':<12}"
+            f"{'fails' if not empty.passed else 'PASSES':<10}{elapsed:>8.2f}"
+        )
+        if not reference.passed:
+            typer.echo(reference.output)
+    if problems:
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
