@@ -149,7 +149,7 @@ def report(
     for name, path in paths.items():
         typer.echo(f"{name:<8} {path}")
     if readme is not None:
-        inject_readme(readme, paths["tables"].read_text(encoding="utf-8"))
+        inject_readme(readme, paths["readme_tables"].read_text(encoding="utf-8"))
         typer.echo(f"readme   {readme} (results section replaced)")
 
 

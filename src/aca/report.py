@@ -449,6 +449,42 @@ def render_tables(data: RunData, summary, totals, lost, caching, breakdown) -> s
     return "\n".join(parts) + "\n"
 
 
+def render_readme_tables(data: RunData, totals, caching, breakdown) -> str:
+    """The short version of the results for the README. Same numbers as the full report."""
+    baseline = data.meta["baseline"]
+    order = totals.sort_values("workload_cost_usd", ascending=False)
+    parts = [
+        "| Policy | Cost per run of all 10 tasks | vs Opus | Passed | First try (95% interval) |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+    for _, r in order.iterrows():
+        change = "baseline" if r["policy"] == baseline else _pct(r["cost_change_vs_baseline"], True)
+        parts.append(
+            f"| `{r['policy']}` | {_usd(r['workload_cost_usd'])} | {change} | "
+            f"{r['pass_rate'] * r['runs']:.0f}/{r['runs']} | "
+            f"{_pct(r['first_try_rate'])} ({_pct(r['first_try_low'])} to "
+            f"{_pct(r['first_try_high'])}) |"
+        )
+    parts += [
+        "",
+        "**What caching added on its own** (same models, same steps, only `cache_control` "
+        "differs), and how much of each policy's spend was output tokens, which caching cannot "
+        "reduce:",
+        "",
+        "| Models | Saving from caching | Range over repetitions | Cache writes | "
+        "Output share of spend |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+    output_share = breakdown.set_index("policy")["output_share"]
+    for _, r in caching.iterrows():
+        parts.append(
+            f"| `{r['pair']}` | {_pct(r['change'], True)} | "
+            f"{_pct(r['change_min'], True)} to {_pct(r['change_max'], True)} | "
+            f"{r['cache_write_calls']} | {_pct(output_share.get(r['pair'], math.nan))} |"
+        )
+    return "\n".join(parts) + "\n"
+
+
 def render_report(data: RunData, tables: str) -> str:
     meta = data.meta
     prices = meta["prices"]
@@ -573,10 +609,14 @@ def write_report(run_dir: str | Path, out_dir: str | Path = "results") -> dict[s
         "report": out_dir / "report.md",
         "chart": out_dir / "chart.png",
         "tables": out_dir / "tables.md",
+        "readme_tables": out_dir / "readme-tables.md",
     }
     summary.round(6).to_csv(paths["summary"], index=False)
     paths["report"].write_text(render_report(data, tables), encoding="utf-8")
     paths["tables"].write_text(tables, encoding="utf-8")
+    paths["readme_tables"].write_text(
+        render_readme_tables(data, totals, caching, breakdown), encoding="utf-8"
+    )
     render_chart(data, totals, paths["chart"])
     return paths
 

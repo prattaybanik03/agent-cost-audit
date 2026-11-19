@@ -99,7 +99,7 @@ def test_losses_name_the_task_and_the_reason(run_dir) -> None:
 
 def test_write_report_produces_every_file(run_dir, tmp_path) -> None:
     paths = write_report(run_dir, tmp_path / "results")
-    for key in ("summary", "report", "chart", "tables"):
+    for key in ("summary", "report", "chart", "tables", "readme_tables"):
         assert paths[key].exists() and paths[key].stat().st_size > 0
     assert paths["chart"].read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     csv = pd.read_csv(paths["summary"])
@@ -108,6 +108,25 @@ def test_write_report_produces_every_file(run_dir, tmp_path) -> None:
     assert "Token counts estimated (mock)" in report
     assert "Where the cheaper route lost" in report
     assert "https://" in report  # price source
+
+
+def test_readme_tables_agree_with_the_full_report(run_dir, tmp_path) -> None:
+    paths = write_report(run_dir, tmp_path / "out")
+    short = paths["readme_tables"].read_text(encoding="utf-8")
+    full = paths["tables"].read_text(encoding="utf-8")
+    data = load_run(run_dir)
+    totals = policy_totals(data, summarise(data)).set_index("policy")
+    # Every policy's headline cost appears, formatted identically, in both versions.
+    for policy in totals.index:
+        cost = f"${totals.loc[policy, 'workload_cost_usd']:.4f}"
+        cost = (
+            cost
+            if totals.loc[policy, "workload_cost_usd"] < 0.1
+            else (f"${totals.loc[policy, 'workload_cost_usd']:.2f}")
+        )
+        assert f"`{policy}` | {cost}" in short
+        assert f"`{policy}` | {cost}" in full
+    assert "/4 |" in short  # passed count over runs, e.g. 2/4
 
 
 def test_inject_readme_replaces_only_the_marked_section(run_dir, tmp_path) -> None:
