@@ -593,7 +593,9 @@ def render_chart(data: RunData, totals: pd.DataFrame, path: Path) -> None:
     plt.close(fig)
 
 
-def write_report(run_dir: str | Path, out_dir: str | Path = "results") -> dict[str, Path]:
+def write_report(
+    run_dir: str | Path, out_dir: str | Path = "results", site_dir: str | Path | None = None
+) -> dict[str, Path]:
     data = load_run(run_dir)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -618,6 +620,12 @@ def write_report(run_dir: str | Path, out_dir: str | Path = "results") -> dict[s
         render_readme_tables(data, totals, caching, breakdown), encoding="utf-8"
     )
     render_chart(data, totals, paths["chart"])
+    if site_dir is not None:
+        from aca.site import write_site
+
+        paths["site"] = write_site(
+            site_dir, data.meta, data.calls, totals, caching, breakdown, paths["chart"]
+        )
     return paths
 
 

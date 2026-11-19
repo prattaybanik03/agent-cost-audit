@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent-cost-audit: what routing and prompt caching really save</title>
+<meta name="description" content="Measured on 829 real API calls: how much model routing and prompt caching cut an AI coding agent's cost, and whether quality holds.">
+<style>
+:root { --ink:#0b0b0b; --ink2:#52514e; --line:#e4e3df; --bg:#fcfcfb; --blue:#2a78d6;
+        --orange:#eb6834; --panel:#f3f2ee; }
+@media (prefers-color-scheme: dark) {
+  :root { --ink:#f0efec; --ink2:#c3c2b7; --line:#383835; --bg:#1a1a19; --panel:#232321; }
+  img.chart { background:#fcfcfb; border-radius:8px; }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink);
+       font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+main { max-width:960px; margin:0 auto; padding:40px 20px 64px; }
+h1 { font-size:2rem; margin:0 0 8px; letter-spacing:-0.01em; }
+.lede { font-size:1.15rem; color:var(--ink2); margin:0 0 24px; }
+h2 { font-size:1.3rem; margin:44px 0 12px; padding-top:12px; border-top:1px solid var(--line); }
+.glance { display:grid; grid-template-columns:160px 1fr; gap:0; border:1px solid var(--line);
+          border-radius:10px; overflow:hidden; margin:0 0 28px; }
+.glance dt, .glance dd { margin:0; padding:12px 16px; border-bottom:1px solid var(--line); }
+.glance dt { font-weight:600; background:var(--panel); }
+.glance dt:last-of-type, .glance dd:last-of-type { border-bottom:0; }
+.big { font-size:1.05rem; }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px;
+         margin:0 0 28px; }
+.stat { border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+.stat b { display:block; font-size:1.7rem; line-height:1.1; }
+.stat span { color:var(--ink2); font-size:0.9rem; }
+img.chart { width:100%; height:auto; border:1px solid var(--line); border-radius:8px; }
+.tablewrap { overflow-x:auto; }
+table { border-collapse:collapse; width:100%; font-size:0.95rem; margin:8px 0 6px; }
+th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:right;
+         white-space:nowrap; }
+th:first-child, td:first-child { text-align:left; }
+th { color:var(--ink2); font-weight:600; }
+code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:0.9em; }
+.note { color:var(--ink2); font-size:0.9rem; }
+ul { padding-left:20px; } li { margin:6px 0; }
+a { color:var(--blue); }
+footer { margin-top:48px; color:var(--ink2); font-size:0.85rem; }
+@media (max-width:600px) { .glance { grid-template-columns:1fr; }
+  .glance dt { border-bottom:0; } }
+</style>
+</head>
+<body>
+<main>
+<h1>agent-cost-audit</h1>
+<p class="lede">How much do model routing and prompt caching really cut the cost of an AI coding agent, and does quality hold? Measured on 829 real API calls.</p>
+
+<div class="stats" role="list">
+  <div class="stat" role="listitem"><b>-96%</b><span>cost, Haiku alone vs Opus</span></div>
+  <div class="stat" role="listitem"><b>-51%</b><span>cost, routed vs Opus</span></div>
+  <div class="stat" role="listitem"><b>-12% to -11%</b><span>extra saving from caching</span></div>
+  <div class="stat" role="listitem"><b>400/400</b><span>task runs passed</span></div>
+</div>
+
+<dl class="glance">
+  <dt>The question</dt>
+  <dd>On the same coding-agent workload, how much do model routing and prompt caching cut API cost, and does quality hold?</dd>
+  <dt>The answer</dt>
+  <dd class="big">Haiku 5.5 alone did the work for <b>96% less</b> than Opus 5.5, and passed every task. Routing (Opus plans, Haiku writes) saved 51%. Caching the system prompt saved a further 11% to 12%.</dd>
+  <dt>The catch</dt>
+  <dd>Caching cannot touch output tokens, which were 73% to 91% of spend. Routing spent 95% of its budget on the Opus planning step, and never needed the Opus fix it held in reserve. In a <a href="https://github.com/prattaybanik03/agent-cost-audit/blob/main/results/smoke-16k-limit/report.md">separate smoke test</a> with a lower output limit, the cheap model was cut off mid-answer and the routed policy failed the hardest task.</dd>
+  <dt>The evidence</dt>
+  <dd>10 tasks &times; 8 policies &times; 5 repetitions: 400 task runs, 829 API calls, $26.62. Hidden tests ran in a Docker sandbox with no network. Every result on this page is generated from that logged run.</dd>
+</dl>
+
+<img class="chart" src="chart.png" width="1350" height="780" alt="Mean API cost per task for each policy, uncached and cached, with pass rate for each bar.">
+
+<h2>Cost and quality by policy</h2>
+<div class='tablewrap'><table><caption class='note' style='text-align:left'>Overlapping intervals mean this run does not show a quality difference.</caption><thead><tr><th scope='col'>Policy</th><th scope='col'>Cost per run of all 10 tasks</th><th scope='col'>vs Opus</th><th scope='col'>Passed</th><th scope='col'>First try (95% interval)</th></tr></thead><tbody><tr><td><code>opus</code></td><td>$1.45</td><td>baseline</td><td>50/50</td><td>94% (84% to 98%)</td></tr><tr><td><code>opus_cached</code></td><td>$1.28</td><td>-12%</td><td>50/50</td><td>94% (84% to 98%)</td></tr><tr><td><code>routed</code></td><td>$0.72</td><td>-51%</td><td>50/50</td><td>90% (79% to 96%)</td></tr><tr><td><code>routed_cached</code></td><td>$0.64</td><td>-56%</td><td>50/50</td><td>92% (81% to 97%)</td></tr><tr><td><code>sonnet</code></td><td>$0.60</td><td>-59%</td><td>50/50</td><td>94% (84% to 98%)</td></tr><tr><td><code>sonnet_cached</code></td><td>$0.53</td><td>-64%</td><td>50/50</td><td>96% (87% to 99%)</td></tr><tr><td><code>haiku</code></td><td>$0.0557</td><td>-96%</td><td>50/50</td><td>90% (79% to 96%)</td></tr><tr><td><code>haiku_cached</code></td><td>$0.0491</td><td>-97%</td><td>50/50</td><td>94% (84% to 98%)</td></tr></tbody></table></div>
+
+<h2>What caching added on its own</h2>
+<div class='tablewrap'><table><caption class='note' style='text-align:left'>Same models and steps; only <code>cache_control</code> on the system prompt differs. Each run starts from a cold cache.</caption><thead><tr><th scope='col'>Models</th><th scope='col'>Saving from caching</th><th scope='col'>Range over repetitions</th><th scope='col'>Cache writes</th><th scope='col'>Output share of spend</th></tr></thead><tbody><tr><td><code>opus</code></td><td>-12%</td><td>-24% to -1%</td><td>2</td><td>77%</td></tr><tr><td><code>sonnet</code></td><td>-11%</td><td>-17% to +3%</td><td>1</td><td>73%</td></tr><tr><td><code>haiku</code></td><td>-12%</td><td>-17% to -7%</td><td>1</td><td>85%</td></tr><tr><td><code>routed</code></td><td>-11%</td><td>-13% to -9%</td><td>2</td><td>83%</td></tr></tbody></table></div>
+
+<h2>Where the money goes</h2>
+<div class='tablewrap'><table><caption class='note' style='text-align:left'>Share of each policy's spend by step, and the share that paid for output tokens, thinking included.</caption><thead><tr><th scope='col'>Policy</th><th scope='col'>Plan</th><th scope='col'>Write</th><th scope='col'>Fix</th><th scope='col'>Output tokens</th></tr></thead><tbody><tr><td><code>opus</code></td><td>47%</td><td>48%</td><td>6%</td><td>77%</td></tr><tr><td><code>opus_cached</code></td><td>47%</td><td>47%</td><td>6%</td><td>85%</td></tr><tr><td><code>sonnet</code></td><td>38%</td><td>59%</td><td>3%</td><td>73%</td></tr><tr><td><code>sonnet_cached</code></td><td>38%</td><td>60%</td><td>2%</td><td>83%</td></tr><tr><td><code>haiku</code></td><td>31%</td><td>62%</td><td>7%</td><td>85%</td></tr><tr><td><code>haiku_cached</code></td><td>29%</td><td>65%</td><td>6%</td><td>90%</td></tr><tr><td><code>routed</code></td><td>95%</td><td>5%</td><td>0%</td><td>83%</td></tr><tr><td><code>routed_cached</code></td><td>95%</td><td>5%</td><td>0%</td><td>91%</td></tr></tbody></table></div>
+
+<h2>How it was measured</h2>
+<ul>
+  <li>Every policy runs the same loop (plan, write, test, at most two fixes), the same ten tasks and the same system prompt at effort <code>medium</code>. Only the model per step, and whether the system prompt is cached, change.</li>
+  <li>Cost is computed per call from the API's own token counts, at prices from <a href="https://platform.claude.com/docs/en/about-claude/pricing">the published price list</a>, checked 2026-11-19.</li>
+  <li>A hard budget cap reserves each call's worst-case cost before it is made.</li>
+  <li>Limits: ten synthetic tasks, five repetitions, one provider and one effort setting. Every policy passed every task, so pass rate cannot separate the models here.</li>
+</ul>
+<p>Method, decisions, code and the raw-data schema: <a href="https://github.com/prattaybanik03/agent-cost-audit">github.com/prattaybanik03/agent-cost-audit</a>.</p>
+
+<footer>Run <code>20261119T004705Z</code> at commit <code>2c1f2c2</code>. Page generated by <code>aca report --site</code>.</footer>
+</main>
+</body>
+</html>

@@ -143,9 +143,10 @@ def report(
     run_dir: Path = typer.Argument(..., help="A run folder, e.g. results/raw/<run_id>"),
     out: Path = Path("results"),
     readme: Path = typer.Option(None, help="Also copy the tables into this README."),
+    site: Path = typer.Option(None, help="Also build the static results page in this folder."),
 ) -> None:
     """Write summary.csv, report.md and chart.png from one run's raw logs."""
-    paths = write_report(run_dir, out)
+    paths = write_report(run_dir, out, site)
     for name, path in paths.items():
         typer.echo(f"{name:<8} {path}")
     if readme is not None:

@@ -19,7 +19,7 @@
 | **The question** | On the same coding-agent workload, how much do model routing and prompt caching cut API cost, and does quality hold? |
 | **The answer** | The cheapest model was enough. Haiku 5.5 alone did the work for **96% less** than Opus 5.5 and passed every task. Routing (Opus plans, Haiku writes) saved 51%. Caching the system prompt saved a further 11% to 12%. |
 | **The catch** | Caching cannot touch output tokens, which were 73% to 91% of spend. Routing spent 95% of its budget on an Opus planning step that bought nothing measurable. The cheap route failed, and cost more than Opus, when its output limit was sized for the expensive model. |
-| **The evidence** | 10 tasks × 8 policies × 5 repetitions: 400 task runs, 829 real API calls, US$26.62. Hidden tests ran in a Docker sandbox with no network, and every figure here is generated from the logged run. 214 tests run in CI. |
+| **The evidence** | 10 tasks × 8 policies × 5 repetitions: 400 task runs, 829 real API calls, US$26.62. Hidden tests ran in a Docker sandbox with no network, and every figure here is generated from the logged run. 220 tests run in CI. |
 | **My role** | I set the question and the business case and made the product and architecture decisions. I directed AI coding agents through each stage, verified the numbers and shipped it. See [How this was built](#how-this-was-built). |
 
 ![Mean API cost per task for each policy, uncached and cached, with pass rate: Opus $0.145, Sonnet $0.060, Haiku $0.006, Routed $0.072, every policy 100% pass](results/chart.png)
@@ -92,7 +92,7 @@ Needs Python 3.11+, [uv](https://docs.astral.sh/uv/) and Docker for the network-
 ```bash
 uv sync
 uv run aca sandbox-build      # build the test sandbox image
-uv run pytest                 # 214 tests, mock provider only: no API key, no network calls
+uv run pytest                 # 220 tests, mock provider only: no API key, no network calls
 ```
 
 Run the whole pipeline with the mock provider. There is no spend, and the token counts are estimates, so it proves the pipeline, not the numbers:
@@ -106,7 +106,7 @@ A real run. Copy `.env.example` to `.env` and add an Anthropic API key first:
 
 ```bash
 uv run aca run                                   # 10 tasks × 8 policies × 5 reps, capped in config/run.yaml
-uv run aca report results/raw/<run_id> --readme README.md
+uv run aca report results/raw/<run_id> --readme README.md --site site
 uv run aca run --tasks e1_interval_merge --policies opus,haiku --reps 1 --cap 1   # a small slice
 ```
 
@@ -118,7 +118,8 @@ tasks/          10 tasks: prompt.md (what the model sees), test_task.py (hidden)
 config/         prices.yaml (source and date checked), run.yaml (policies, cap, effort, repetitions)
 results/        report.md, summary.csv, chart.png from the published run; smoke-16k-limit/ for the 16,000-limit case
 docs/           method.md, decisions.md
-tests/          214 tests: pricing, budget, loop, sandbox isolation, report, task strength
+site/           static results page (index.html, chart.png) built by `aca report --site`; vercel.json sets security headers
+tests/          220 tests: pricing, budget, loop, sandbox isolation, report, task strength
 sandbox/        Dockerfile for the test sandbox, base image pinned by digest
 ```
 
