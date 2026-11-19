@@ -71,6 +71,7 @@ def summarise(data: RunData) -> pd.DataFrame:
                 "policy": policy,
                 "runs": len(group),
                 "pass_rate": group["passed"].mean(),
+                "first_try_rate": (group["passed"] & (group["fix_attempts"] == 0)).mean(),
                 "cost_mean_usd": group["cost_usd"].mean(),
                 "cost_min_usd": group["cost_usd"].min(),
                 "cost_max_usd": group["cost_usd"].max(),
@@ -115,6 +116,10 @@ def policy_totals(data: RunData, summary: pd.DataFrame) -> pd.DataFrame:
                 "tasks_covered": len(mine),
                 "runs": len(policy_runs),
                 "pass_rate": policy_runs["passed"].mean(),
+                "first_try_rate": (
+                    policy_runs["passed"] & (policy_runs["fix_attempts"] == 0)
+                ).mean(),
+                "fix_attempts": int(policy_runs["fix_attempts"].sum()),
                 "workload_cost_usd": workload,
                 "workload_cost_min_usd": full_reps.min() if len(full_reps) else math.nan,
                 "workload_cost_max_usd": full_reps.max() if len(full_reps) else math.nan,
@@ -183,6 +188,30 @@ def losses(data: RunData, summary: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def cost_breakdown(data: RunData) -> pd.DataFrame:
+    """Per policy: the share of spend by step, and the share that paid for output tokens."""
+    calls = data.calls
+    output_price = {m: p["output"] for m, p in data.meta["prices"]["models"].items()}
+    rows = []
+    for policy in [p["name"] for p in data.meta["policies"]]:
+        mine = calls[calls["policy"] == policy]
+        total = mine["cost_usd"].sum()
+        if not total:
+            continue
+        by_step = mine.groupby("step")["cost_usd"].sum()
+        output_cost = (mine["output_tokens"] * mine["model"].map(output_price)).sum() / 1_000_000
+        rows.append(
+            {
+                "policy": policy,
+                "plan_share": by_step.get("plan", 0.0) / total,
+                "write_share": by_step.get("write", 0.0) / total,
+                "fix_share": by_step.get("fix", 0.0) / total,
+                "output_share": output_cost / total,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def caching_effect(totals: pd.DataFrame, summary: pd.DataFrame) -> pd.DataFrame:
     rows = []
     by_policy = totals.set_index("policy")
@@ -229,7 +258,7 @@ def _table(headers: list[str], rows: list[list[str]], align: str) -> str:
     return "\n".join(lines)
 
 
-def render_tables(data: RunData, summary, totals, lost, caching) -> str:
+def render_tables(data: RunData, summary, totals, lost, caching, breakdown) -> str:
     meta = data.meta
     baseline = meta["baseline"]
     parts = []
@@ -238,7 +267,8 @@ def render_tables(data: RunData, summary, totals, lost, caching) -> str:
     parts.append(
         f"Workload cost is the mean cost of each task, summed over all {len(meta['tasks'])} "
         f"tasks. The range is the cheapest and dearest full repetition. Change is against "
-        f"`{baseline}`. Pass rate is over every task run.\n"
+        f"`{baseline}`. Pass rate is over every task run. First-try rate is the share of task "
+        "runs that passed with no fix attempt.\n"
     )
     rows = []
     for _, r in totals.sort_values("workload_cost_usd", ascending=False).iterrows():
@@ -249,15 +279,17 @@ def render_tables(data: RunData, summary, totals, lost, caching) -> str:
                 f"{_usd(r['workload_cost_min_usd'])} – {_usd(r['workload_cost_max_usd'])}",
                 "baseline" if r["policy"] == baseline else _pct(r["cost_change_vs_baseline"], True),
                 _pct(r["pass_rate"]),
+                _pct(r["first_try_rate"]),
+                str(r["fix_attempts"]),
                 _usd(r["cost_per_pass_usd"]),
             ]
         )
     parts.append(
         _table(
             ["Policy", "Workload cost", "Range over reps", "Cost vs baseline", "Pass rate",
-             "Cost per passed task"],
+             "First-try rate", "Fix attempts", "Cost per passed task"],
             rows,
-            "lrrrrr",
+            "lrrrrrrr",
         )
     )  # fmt: skip
 
@@ -286,6 +318,23 @@ def render_tables(data: RunData, summary, totals, lost, caching) -> str:
         )
     )
 
+    parts.append("\n\n### Where the money goes\n")
+    parts.append(
+        "Share of each policy's spend by step, and the share that paid for output tokens "
+        "(thinking included). Prompt caching can only reduce the rest.\n"
+    )
+    rows = [
+        [
+            f"`{r['policy']}`",
+            _pct(r["plan_share"]),
+            _pct(r["write_share"]),
+            _pct(r["fix_share"]),
+            _pct(r["output_share"]),
+        ]
+        for _, r in breakdown.iterrows()
+    ]
+    parts.append(_table(["Policy", "Plan", "Write", "Fix", "Output tokens"], rows, "lrrrr"))
+
     parts.append("\n\n### Where the cheaper route lost\n")
     if lost.empty:
         parts.append(f"No policy cost more than `{baseline}` or passed less often on any task.")
@@ -303,7 +352,8 @@ def render_tables(data: RunData, summary, totals, lost, caching) -> str:
                 f"`{r['task_id']}`",
                 f"`{r['policy']}`",
                 r["lost_on"],
-                f"{_usd(r['cost_mean_usd'])} vs {_usd(r['baseline_cost_usd'])}",
+                f"${r['cost_mean_usd']:.4f} vs ${r['baseline_cost_usd']:.4f} "
+                f"({r['cost_mean_usd'] / r['baseline_cost_usd'] - 1:+.1%})",
                 f"{_pct(r['pass_rate'])} vs {_pct(r['baseline_pass_rate'])}",
                 r["why"],
             ]
@@ -368,7 +418,8 @@ def render_report(data: RunData, tables: str) -> str:
         "",
         f"- Provider: {meta['provider']}. Token counts {meta['token_counts']}.",
         f"- {len(meta['tasks'])} tasks × {len(meta['policies'])} policies × "
-        f"{meta['repetitions']} repetitions. {meta.get('completed_task_runs')} of "
+        f"{meta['repetitions']} repetition{'s' if meta['repetitions'] != 1 else ''}. "
+        f"{meta.get('completed_task_runs')} of "
         f"{meta.get('planned_task_runs')} task runs completed.",
         f"- Total API spend for this run: ${meta.get('spent_usd', 0):.2f} "
         f"(cap ${meta['budget_cap_usd']:.2f}).",
@@ -431,7 +482,7 @@ def render_chart(data: RunData, totals: pd.DataFrame, path: Path) -> None:
                         for g in groups], color=INK)  # fmt: skip
     ax.set_ylabel("Mean API cost per task (US$)", color=INK)
     ax.set_ylim(0, top * 1.25 if top else 1)
-    ax.yaxis.set_major_formatter(FormatStrFormatter("$%.2f"))
+    ax.yaxis.set_major_formatter(FormatStrFormatter("$%.3f"))
     ax.grid(axis="y", color=GRID, linewidth=1, zorder=0)
     for side in ("top", "right", "left"):
         ax.spines[side].set_visible(False)
@@ -458,7 +509,8 @@ def write_report(run_dir: str | Path, out_dir: str | Path = "results") -> dict[s
     totals = policy_totals(data, summary)
     lost = losses(data, summary)
     caching = caching_effect(totals, summary)
-    tables = render_tables(data, summary, totals, lost, caching)
+    breakdown = cost_breakdown(data)
+    tables = render_tables(data, summary, totals, lost, caching, breakdown)
 
     paths = {
         "summary": out_dir / "summary.csv",
