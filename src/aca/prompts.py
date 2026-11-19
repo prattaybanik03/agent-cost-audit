@@ -1,8 +1,10 @@
 """The shared system prompt every model call uses.
 
 It is static text. Nothing in it changes between calls, so it is a stable cache prefix. The only
-per-policy content is the first line, a label that gives each policy its own cache entry, so one
-policy's cache writes are never read by another policy that uses the same model.
+varying content is the first line: a label naming the policy and the run. It gives each policy
+its own cache entry within a run, and each run its own entries, so no policy or run ever reads a
+cache entry another one wrote. Without the run in the label, a run started within the cache
+lifetime of an earlier one would begin with a warm cache and skip the cache-write cost.
 """
 
 from __future__ import annotations
@@ -119,9 +121,9 @@ the complete module, and nothing after it.
 """
 
 
-def system_prompt(policy_name: str) -> str:
-    """The system prompt for one policy. Identical for every call the policy makes."""
-    return f"Pipeline label: {policy_name}\n\n{_BODY}"
+def system_prompt(policy_name: str, run_id: str) -> str:
+    """The system prompt for one policy in one run. Identical for every call it makes."""
+    return f"Pipeline label: {policy_name}, run {run_id}\n\n{_BODY}"
 
 
 def body_sha256() -> str:

@@ -10,6 +10,7 @@ from aca.sandbox import (
     SubprocessSandbox,
     as_test_runner,
     docker_ready,
+    judge,
     make_sandbox,
     truncate,
 )
@@ -54,6 +55,21 @@ def test_missing_name_fails(sandbox) -> None:
 
 def test_no_tests_collected_is_not_a_pass(sandbox) -> None:
     assert not sandbox.run("# no tests here\n", SOLUTION).passed
+
+
+def test_exiting_zero_at_import_is_not_a_pass(sandbox) -> None:
+    """Generated code can end the process with status 0 before any test runs."""
+    cheat = "import os\nos._exit(0)\n" + SOLUTION
+    result = sandbox.run(TESTS, cheat)
+    assert not result.passed, result.output
+
+
+def test_judge_requires_a_clean_pytest_summary() -> None:
+    assert judge(0, "3 passed in 0.1s").passed
+    assert not judge(0, "").passed  # exit 0 with no summary
+    assert not judge(0, "2 passed, 1 failed in 0.1s").passed
+    assert not judge(0, "2 passed, 1 error in 0.1s").passed
+    assert not judge(1, "3 passed in 0.1s").passed
 
 
 def test_infinite_loop_times_out(sandbox) -> None:

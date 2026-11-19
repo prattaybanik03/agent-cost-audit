@@ -10,9 +10,10 @@ models inside a policy. A refusal comes back as stop_reason "refusal" and fails 
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, cast
 
 import anthropic
+from anthropic.types import MessageParam, OutputConfigParam, TextBlockParam
 
 from aca.providers.base import Message, Response, Usage
 
@@ -78,9 +79,12 @@ class AnthropicProvider:
         model: str,
         max_tokens: int,
     ) -> Response:
-        block: dict[str, Any] = {"type": "text", "text": system}
+        block: TextBlockParam = {"type": "text", "text": system}
         if cache:
             block["cache_control"] = {"type": "ephemeral"}
+        # Our messages are plain role/content dicts, which is the shape MessageParam describes.
+        api_messages = cast(list[MessageParam], messages)
+        output_config = cast(OutputConfigParam, {"effort": self.effort})
 
         # Streamed so a large output allowance cannot hit an HTTP timeout. Only the final
         # message is used; latency is the time to the complete reply.
@@ -89,8 +93,8 @@ class AnthropicProvider:
             model=model,
             max_tokens=max_tokens,
             system=[block],
-            messages=messages,
-            output_config={"effort": self.effort},
+            messages=api_messages,
+            output_config=output_config,
         ) as stream:
             response = stream.get_final_message()
         latency_ms = (time.perf_counter() - started) * 1000

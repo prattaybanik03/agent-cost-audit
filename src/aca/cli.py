@@ -8,9 +8,11 @@ from pathlib import Path
 import typer
 from dotenv import load_dotenv
 
+from aca.agent import TokenEstimator
 from aca.policies import load_run_config
 from aca.pricing import load_prices
 from aca.providers.anthropic import AnthropicProvider, conservative_token_estimate
+from aca.providers.base import Provider
 from aca.providers.mock import MockProvider, estimate_tokens
 from aca.report import inject_readme, write_report
 from aca.runner import run_benchmark
@@ -90,6 +92,8 @@ def run(
         raise typer.BadParameter("sandbox must be auto, docker or subprocess")
     runner = make_sandbox(sandbox)  # type: ignore[arg-type]
 
+    chosen: Provider
+    estimator: TokenEstimator
     if provider == "anthropic":
         chosen = AnthropicProvider(effort=config.effort)
         estimator = conservative_token_estimate

@@ -9,11 +9,13 @@ from aca.providers.mock import MockProvider, estimate_tokens
 from aca.report import (
     README_END,
     README_START,
+    caching_effect,
     inject_readme,
     load_run,
     losses,
     policy_totals,
     summarise,
+    wilson_interval,
     write_report,
 )
 from aca.runner import run_benchmark
@@ -117,6 +119,30 @@ def test_inject_readme_replaces_only_the_marked_section(run_dir, tmp_path) -> No
     assert text.startswith("# Title") and text.rstrip().endswith("Footer")
     inject_readme(readme, "| newer |")  # idempotent: can be run again
     assert "| new | table |" not in readme.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("successes", "trials", "low", "high"),
+    [(47, 50, 0.838, 0.979), (42, 50, 0.715, 0.917), (50, 50, 0.929, 1.0), (0, 10, 0.0, 0.278)],
+)
+def test_wilson_interval_matches_published_values(successes, trials, low, high) -> None:
+    got_low, got_high = wilson_interval(successes, trials)
+    assert got_low == pytest.approx(low, abs=0.001)
+    assert got_high == pytest.approx(high, abs=0.001)
+
+
+def test_caching_table_counts_cache_writes(run_dir) -> None:
+    data = load_run(run_dir)
+    summary = summarise(data)
+    caching = caching_effect(data, policy_totals(data, summary), summary).set_index("pair")
+    # The mock writes the cache on a model's first call in a policy, then reads it.
+    assert caching.loc["opus", "cache_write_calls"] >= 1
+    assert caching.loc["opus", "change_min"] <= caching.loc["opus", "change_max"]
+
+
+def test_report_states_whether_the_tree_was_dirty(run_dir, tmp_path) -> None:
+    report = write_report(run_dir, tmp_path / "out")["report"].read_text(encoding="utf-8")
+    assert "uncommitted changes" in report
 
 
 def test_inject_readme_requires_markers(tmp_path) -> None:

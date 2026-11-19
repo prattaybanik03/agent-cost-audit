@@ -5,7 +5,14 @@ Two sandboxes share one interface:
 - `DockerSandbox` runs each test in a fresh container with no network, a read-only filesystem,
   no capabilities, and memory, CPU and process limits. This is the one real runs should use.
 - `SubprocessSandbox` runs pytest in a child process with a timeout, a temp directory and a
-  stripped environment. It does NOT block network access. It exists for machines without Docker.
+  stripped environment. It does NOT block network access, and it does NOT isolate the file
+  system: generated code runs as the current user and can read any file that user can,
+  including a project's .env, by absolute path. It exists for machines without Docker. Do not
+  use it with real secrets on the machine.
+
+A run counts as passed only if pytest exits 0 AND its summary reports at least one passed test
+and no failures or errors. The exit code alone is not trusted: code that calls os._exit(0) at
+import would otherwise pass without a single test running.
 
 A sandbox failure (Docker not running, image missing) raises `SandboxError`. It is never
 reported as a failed test, because that would blame the model for an infrastructure fault.
@@ -14,6 +21,7 @@ reported as a failed test, because that would blame the model for an infrastruct
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -47,6 +55,27 @@ class Sandbox(Protocol):
     isolates_network: bool
 
     def run(self, test_code: str, solution_code: str) -> TestResult: ...
+
+
+_COUNTS = re.compile(r"(\d+) (passed|failed|error|errors)\b")
+
+
+def pytest_counts(output: str) -> tuple[int, int]:
+    """(passed, failed) from pytest's summary line. Errors count as failures."""
+    passed = failed = 0
+    for number, word in _COUNTS.findall(output):
+        if word == "passed":
+            passed = int(number)
+        else:
+            failed += int(number)
+    return passed, failed
+
+
+def judge(returncode: int, output: str) -> TestResult:
+    """A pass needs exit code 0 and a pytest summary with passes and no failures."""
+    passed, failed = pytest_counts(output)
+    ok = returncode == 0 and passed > 0 and failed == 0
+    return TestResult(passed=ok, output=truncate(output))
 
 
 def truncate(output: str) -> str:
@@ -93,7 +122,7 @@ class SubprocessSandbox:
                     output=f"Tests did not finish within {self.timeout_s:g} seconds.",
                     timed_out=True,
                 )
-        return TestResult(passed=proc.returncode == 0, output=truncate(proc.stdout + proc.stderr))
+        return judge(proc.returncode, proc.stdout + proc.stderr)
 
 
 class DockerSandbox:
@@ -147,7 +176,7 @@ class DockerSandbox:
             raise SandboxError(f"docker run failed ({proc.returncode}): {proc.stderr.strip()}")
         if proc.returncode == _KILLED:
             return self._timed_out()
-        return TestResult(passed=proc.returncode == 0, output=truncate(proc.stdout + proc.stderr))
+        return judge(proc.returncode, proc.stdout + proc.stderr)
 
     def _timed_out(self) -> TestResult:
         return TestResult(

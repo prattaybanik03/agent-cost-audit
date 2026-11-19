@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import platform
-import re
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -30,34 +29,33 @@ from aca.log import CallLog
 from aca.policies import Policy, RunConfig
 from aca.pricing import PriceTable
 from aca.providers.base import Provider
-from aca.sandbox import Sandbox, SandboxError, as_test_runner
+from aca.sandbox import Sandbox, SandboxError, as_test_runner, pytest_counts
 
-_COUNTS = re.compile(r"(\d+) (passed|failed|error|errors)\b")
-
-
-def pytest_counts(output: str) -> tuple[int, int]:
-    """(passed, failed) from pytest's summary line. Errors count as failures."""
-    passed = failed = 0
-    for number, word in _COUNTS.findall(output):
-        if word == "passed":
-            passed = int(number)
-        else:
-            failed += int(number)
-    return passed, failed
+__all__ = ["RunSummary", "git_commit", "git_dirty", "new_run_id", "pytest_counts", "run_benchmark"]
 
 
 def new_run_id() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-def git_commit() -> str | None:
+def _git(*args: str) -> str | None:
     try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=False
-        )
+        proc = subprocess.run(["git", *args], capture_output=True, text=True, check=False)
     except FileNotFoundError:
         return None
-    return proc.stdout.strip() or None
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def git_commit() -> str | None:
+    out = _git("rev-parse", "--short", "HEAD")
+    return out.strip() or None if out else None
+
+
+def git_dirty() -> bool | None:
+    """True if tracked files differ from the commit, so the commit alone does not describe the
+    code that ran. Untracked files (such as results) are ignored. None if git is unavailable."""
+    out = _git("status", "--porcelain", "--untracked-files=no")
+    return None if out is None else bool(out.strip())
 
 
 @dataclass
@@ -136,7 +134,7 @@ def run_benchmark(
             prices=prices,
             budget=budget,
             log=log,
-            system=prompts.system_prompt(policy.name),
+            system=prompts.system_prompt(policy.name, run_id),
             run_tests=test_runner,
             estimate_tokens=estimate_tokens,
             on_test=recorder.on_test,
@@ -154,6 +152,8 @@ def run_benchmark(
         "provider": provider.name,
         "token_counts": "estimated (mock)" if provider.name == "mock" else "from API usage fields",
         "git_commit": git_commit(),
+        "git_dirty": git_dirty(),
+        "cache_label": "policy and run ID, so no policy or run reads another's cache entries",
         "python": platform.python_version(),
         "sandbox": sandbox.name,
         "sandbox_isolates_network": sandbox.isolates_network,
@@ -240,6 +240,6 @@ def run_benchmark(
         spent_usd=budget.spent_usd,
         completed=progress["done"],
         planned=len(work),
-        stopped_reason=meta["stopped_reason"],
+        stopped_reason=stop_reason[0] if stop_reason else None,
         passed_by_policy={name: (p, n) for name, (p, n) in passed.items()},
     )

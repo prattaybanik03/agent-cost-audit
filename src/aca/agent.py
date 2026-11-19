@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from aca.budget import Budget
 from aca.log import CallLog, CallRecord, Step
 from aca.policies import Policy, RunConfig
-from aca.pricing import PriceTable
+from aca.pricing import PriceTable, PricingError
 from aca.providers.base import Message, Provider
 
 
@@ -184,7 +184,13 @@ class Agent:
             self.budget.release(reservation)
             raise
 
-        cost = self.prices.cost_usd(response.model, response.usage)
+        try:
+            cost = self.prices.cost_usd(response.model, response.usage)
+        except PricingError:
+            # The call was made and billed, but cannot be priced (for example, an unexpected
+            # model served it). Count it at the worst case already reserved, then stop.
+            self.budget.settle(reservation, worst_case)
+            raise
         self.budget.settle(reservation, cost)
         self.log.append(
             CallRecord(

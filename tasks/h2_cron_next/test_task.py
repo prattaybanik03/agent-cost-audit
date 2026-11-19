@@ -1,3 +1,4 @@
+import itertools
 from datetime import datetime
 
 import pytest
@@ -107,7 +108,7 @@ def test_next_runs():
 
 def test_next_runs_are_strictly_increasing():
     runs = next_runs("15,45 */4 * * 1,3", dt("2024-03-30 00:00"), 30)
-    assert all(earlier < later for earlier, later in zip(runs, runs[1:], strict=False))
+    assert all(earlier < later for earlier, later in itertools.pairwise(runs))
     assert all(run.weekday() in (0, 2) for run in runs)  # Monday and Wednesday
     assert all(run.minute in (15, 45) and run.hour % 4 == 0 for run in runs)
 

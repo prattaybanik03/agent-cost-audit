@@ -14,9 +14,9 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
-from matplotlib.ticker import FormatStrFormatter  # noqa: E402
+import matplotlib.pyplot as plt
+import pandas as pd
+from matplotlib.ticker import FormatStrFormatter
 
 README_START = "<!-- results:start -->"
 README_END = "<!-- results:end -->"
@@ -110,15 +110,17 @@ def policy_totals(data: RunData, summary: pd.DataFrame) -> pd.DataFrame:
         passes = int(policy_runs["passed"].sum())
         workload = mine["cost_mean_usd"].sum()
         policy_calls = data.calls[data.calls["policy"] == policy]
+        first_try = int((policy_runs["passed"] & (policy_runs["fix_attempts"] == 0)).sum())
+        first_low, first_high = wilson_interval(first_try, len(policy_runs))
         rows.append(
             {
                 "policy": policy,
                 "tasks_covered": len(mine),
                 "runs": len(policy_runs),
                 "pass_rate": policy_runs["passed"].mean(),
-                "first_try_rate": (
-                    policy_runs["passed"] & (policy_runs["fix_attempts"] == 0)
-                ).mean(),
+                "first_try_rate": first_try / len(policy_runs) if len(policy_runs) else math.nan,
+                "first_try_low": first_low,
+                "first_try_high": first_high,
                 "fix_attempts": int(policy_runs["fix_attempts"].sum()),
                 "workload_cost_usd": workload,
                 "workload_cost_min_usd": full_reps.min() if len(full_reps) else math.nan,
@@ -212,9 +214,34 @@ def cost_breakdown(data: RunData) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def caching_effect(totals: pd.DataFrame, summary: pd.DataFrame) -> pd.DataFrame:
+def wilson_interval(successes: int, trials: int, z: float = 1.96) -> tuple[float, float]:
+    """95% Wilson score interval for a proportion. Better behaved than the normal approximation
+    near 0% and 100% and at small n."""
+    if trials == 0:
+        return math.nan, math.nan
+    p = successes / trials
+    denominator = 1 + z * z / trials
+    centre = (p + z * z / (2 * trials)) / denominator
+    half = z * math.sqrt(p * (1 - p) / trials + z * z / (4 * trials * trials)) / denominator
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def _rep_totals(data: RunData, policy: str) -> pd.Series:
+    """Workload cost of each complete repetition of one policy, indexed by repetition."""
+    runs = data.task_runs[
+        (data.task_runs["status"] == "complete") & (data.task_runs["policy"] == policy)
+    ]
+    per_rep = runs.groupby("rep").agg(cost=("cost_usd", "sum"), tasks=("task_id", "count"))
+    return per_rep[per_rep["tasks"] == len(data.meta["tasks"])]["cost"]
+
+
+def caching_effect(data: RunData, totals: pd.DataFrame, summary: pd.DataFrame) -> pd.DataFrame:
+    """Each policy against its cached twin. The rep range pairs repetition k of one with
+    repetition k of the other; the repetitions are independent, so it shows spread, not a
+    paired effect."""
     rows = []
     by_policy = totals.set_index("policy")
+    calls = data.calls
     for name in by_policy.index:
         cached = f"{name}_cached"
         if cached not in by_policy.index:
@@ -222,13 +249,21 @@ def caching_effect(totals: pd.DataFrame, summary: pd.DataFrame) -> pd.DataFrame:
         plain_cost = by_policy.loc[name, "workload_cost_usd"]
         cached_cost = by_policy.loc[cached, "workload_cost_usd"]
         mine = summary[summary["policy"] == cached]
+        plain_reps, cached_reps = _rep_totals(data, name), _rep_totals(data, cached)
+        shared = plain_reps.index.intersection(cached_reps.index)
+        ratios = cached_reps[shared] / plain_reps[shared] - 1
+        cached_calls = calls[calls["policy"] == cached]
         rows.append(
             {
                 "pair": name,
                 "uncached_usd": plain_cost,
                 "cached_usd": cached_cost,
                 "change": cached_cost / plain_cost - 1,
+                "change_min": ratios.min() if len(ratios) else math.nan,
+                "change_max": ratios.max() if len(ratios) else math.nan,
                 "cache_read_share": mine["cache_read_share"].mean(),
+                "cache_write_calls": int((cached_calls["cache_write_tokens"] > 0).sum()),
+                "cache_write_tokens": int(cached_calls["cache_write_tokens"].sum()),
                 "uncached_pass_rate": by_policy.loc[name, "pass_rate"],
                 "cached_pass_rate": by_policy.loc[cached, "pass_rate"],
             }
@@ -241,13 +276,13 @@ def caching_effect(totals: pd.DataFrame, summary: pd.DataFrame) -> pd.DataFrame:
 
 def _usd(value: float) -> str:
     if value is None or (isinstance(value, float) and math.isnan(value)):
-        return "–"
+        return "n/a"
     return f"${value:.4f}" if abs(value) < 0.1 else f"${value:.2f}"
 
 
 def _pct(value: float, signed: bool = False) -> str:
     if value is None or (isinstance(value, float) and math.isnan(value)):
-        return "–"
+        return "n/a"
     return f"{value:+.0%}" if signed else f"{value:.0%}"
 
 
@@ -268,7 +303,8 @@ def render_tables(data: RunData, summary, totals, lost, caching, breakdown) -> s
         f"Workload cost is the mean cost of each task, summed over all {len(meta['tasks'])} "
         f"tasks. The range is the cheapest and dearest full repetition. Change is against "
         f"`{baseline}`. Pass rate is over every task run. First-try rate is the share of task "
-        "runs that passed with no fix attempt.\n"
+        "runs that passed with no fix attempt, with its 95% Wilson interval: two policies whose "
+        "intervals overlap are not shown to differ by this run.\n"
     )
     rows = []
     for _, r in totals.sort_values("workload_cost_usd", ascending=False).iterrows():
@@ -276,10 +312,11 @@ def render_tables(data: RunData, summary, totals, lost, caching, breakdown) -> s
             [
                 f"`{r['policy']}`",
                 _usd(r["workload_cost_usd"]),
-                f"{_usd(r['workload_cost_min_usd'])} – {_usd(r['workload_cost_max_usd'])}",
+                f"{_usd(r['workload_cost_min_usd'])} to {_usd(r['workload_cost_max_usd'])}",
                 "baseline" if r["policy"] == baseline else _pct(r["cost_change_vs_baseline"], True),
                 _pct(r["pass_rate"]),
-                _pct(r["first_try_rate"]),
+                f"{_pct(r['first_try_rate'])} ({_pct(r['first_try_low'])} to "
+                f"{_pct(r['first_try_high'])})",
                 str(r["fix_attempts"]),
                 _usd(r["cost_per_pass_usd"]),
             ]
@@ -296,7 +333,9 @@ def render_tables(data: RunData, summary, totals, lost, caching, breakdown) -> s
     parts.append("\n\n### Caching on its own\n")
     parts.append(
         "Each pair runs the same models on the same steps. The only difference is "
-        "`cache_control` on the shared system prompt. Cache-read share is the fraction of "
+        "`cache_control` on the shared system prompt. Rep range compares repetition k of each; "
+        "repetitions are independent, so it shows spread, not a paired effect. Cache writes "
+        "counts the calls that paid the write premium. Cache-read share is the fraction of "
         "prompt tokens served from the cache.\n"
     )
     rows = [
@@ -305,6 +344,8 @@ def render_tables(data: RunData, summary, totals, lost, caching, breakdown) -> s
             _usd(r["uncached_usd"]),
             _usd(r["cached_usd"]),
             _pct(r["change"], True),
+            f"{_pct(r['change_min'], True)} to {_pct(r['change_max'], True)}",
+            f"{r['cache_write_calls']} ({r['cache_write_tokens']:,} tokens)",
             _pct(r["cache_read_share"]),
             f"{_pct(r['uncached_pass_rate'])} → {_pct(r['cached_pass_rate'])}",
         ]
@@ -312,11 +353,12 @@ def render_tables(data: RunData, summary, totals, lost, caching, breakdown) -> s
     ]
     parts.append(
         _table(
-            ["Models", "Uncached", "Cached", "Change", "Cache-read share", "Pass rate"],
+            ["Models", "Uncached", "Cached", "Change", "Rep range", "Cache writes",
+             "Cache-read share", "Pass rate"],
             rows,
-            "lrrrrr",
+            "lrrrrrrr",
         )
-    )
+    )  # fmt: skip
 
     parts.append("\n\n### Where the money goes\n")
     parts.append(
@@ -399,7 +441,7 @@ def render_tables(data: RunData, summary, totals, lost, caching, breakdown) -> s
     grid = summary.pivot(index="task_id", columns="policy", values="pass_rate")
     rows = [
         [f"`{task['id']}` ({task['difficulty']})"]
-        + [_pct(grid.loc[task["id"], p]) if task["id"] in grid.index and p in grid else "–"
+        + [_pct(grid.loc[task["id"], p]) if task["id"] in grid.index and p in grid else "n/a"
            for p in policies]
         for task in meta["tasks"]
     ]  # fmt: skip
@@ -410,14 +452,28 @@ def render_tables(data: RunData, summary, totals, lost, caching, breakdown) -> s
 def render_report(data: RunData, tables: str) -> str:
     meta = data.meta
     prices = meta["prices"]
+    dirty = meta.get("git_dirty")
+    if dirty is None:
+        code_state = (
+            f"Code at commit `{meta.get('git_commit')}`; whether the working tree had "
+            "uncommitted changes was not recorded for this run, so the commit may not fully "
+            "describe the code that ran."
+        )
+    elif dirty:
+        code_state = (
+            f"Code at commit `{meta.get('git_commit')}` **plus uncommitted changes**, so the "
+            "commit does not fully describe the code that ran."
+        )
+    else:
+        code_state = f"Code at commit `{meta.get('git_commit')}`, with no uncommitted changes."
     lines = [
         "# Results",
         "",
         f"Run `{meta['run_id']}`, started {meta['started_at']} and finished "
-        f"{meta.get('finished_at', 'unknown')}. Code at commit `{meta.get('git_commit')}`.",
+        f"{meta.get('finished_at', 'unknown')}. {code_state}",
         "",
         f"- Provider: {meta['provider']}. Token counts {meta['token_counts']}.",
-        f"- {len(meta['tasks'])} tasks × {len(meta['policies'])} policies × "
+        f"- {len(meta['tasks'])} tasks x {len(meta['policies'])} policies x "
         f"{meta['repetitions']} repetition{'s' if meta['repetitions'] != 1 else ''}. "
         f"{meta.get('completed_task_runs')} of "
         f"{meta.get('planned_task_runs')} task runs completed.",
@@ -508,7 +564,7 @@ def write_report(run_dir: str | Path, out_dir: str | Path = "results") -> dict[s
     summary = summarise(data)
     totals = policy_totals(data, summary)
     lost = losses(data, summary)
-    caching = caching_effect(totals, summary)
+    caching = caching_effect(data, totals, summary)
     breakdown = cost_breakdown(data)
     tables = render_tables(data, summary, totals, lost, caching, breakdown)
 

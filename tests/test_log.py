@@ -9,8 +9,8 @@ from pydantic import ValidationError
 from aca.log import CallLog, CallRecord, read_records
 
 
-def make_record(**overrides) -> CallRecord:
-    fields = {
+def make_record(**overrides: object) -> CallRecord:
+    fields: dict[str, object] = {
         "run_id": "run-1",
         "task_id": "lru_cache",
         "policy": "routed",
@@ -27,7 +27,7 @@ def make_record(**overrides) -> CallRecord:
         "cost_usd": 0.0108,
     }
     fields.update(overrides)
-    return CallRecord(**fields)
+    return CallRecord.model_validate(fields)
 
 
 def test_round_trip(tmp_path: Path) -> None:

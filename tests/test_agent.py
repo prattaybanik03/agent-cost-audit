@@ -8,7 +8,7 @@ from aca.agent import Agent, Task, TestResult, extract_code
 from aca.budget import Budget, BudgetExceeded
 from aca.log import CallLog, read_records
 from aca.policies import RunConfig
-from aca.pricing import PriceTable
+from aca.pricing import PriceTable, PricingError
 from aca.providers.mock import MockProvider, estimate_tokens
 
 OPUS = "claude-opus-5-5"
@@ -157,6 +157,22 @@ def test_failed_provider_call_releases_its_reservation(tmp_path, config, prices)
 
     assert budget.reserved_usd == 0 and budget.spent_usd == 0
     assert records(log_path) == []
+
+
+def test_call_served_by_an_unpriced_model_is_counted_at_worst_case(
+    tmp_path, config, prices
+) -> None:
+    class SwappedModel(MockProvider):
+        def complete(self, messages, system, cache, *, model, max_tokens):
+            response = super().complete(messages, system, cache, model=model, max_tokens=max_tokens)
+            return response.model_copy(update={"model": "some-unpriced-model"})
+
+    agent, _, budget, _ = make_agent(tmp_path, config, prices, [True], provider=SwappedModel())
+    with pytest.raises(PricingError):
+        agent.run_task(TASK, config.policy("opus"), run_id="r1", rep=0)
+
+    assert budget.reserved_usd == 0
+    assert budget.spent_usd > 0.3  # the full worst-case reservation for one Opus call
 
 
 def test_uncached_policy_never_touches_the_cache(tmp_path, config, prices) -> None:

@@ -33,7 +33,7 @@ Reproduce the whole pipeline with the mock provider. No API key, no spend. Token
 
 ```
 uv run aca run --provider mock --reps 1
-uv run aca report results/raw/<run_id> --out results/mock
+uv run aca report results/raw/<run_id> --out results/raw/mock-report
 ```
 
 A real run. Copy `.env.example` to `.env` and add an Anthropic API key first:
