@@ -1,9 +1,9 @@
 # Results
 
-Run `20261118T231252Z`, started 2026-11-18T23:12:52.103365+00:00 and finished 2026-11-18T23:20:22.707692+00:00. Code at commit `f9632e3`.
+Run `20261118T231252Z`, started 2026-11-18T23:12:52.103365+00:00 and finished 2026-11-18T23:20:22.707692+00:00. Code at commit `f9632e3`; whether the working tree had uncommitted changes was not recorded for this run, so the commit may not fully describe the code that ran.
 
 - Provider: anthropic. Token counts from API usage fields.
-- 2 tasks × 8 policies × 1 repetition. 16 of 16 task runs completed.
+- 2 tasks x 8 policies x 1 repetition. 16 of 16 task runs completed.
 - Total API spend for this run: $2.24 (cap $5.00).
 - Effort `medium` on every call. Output allowance 16,000 tokens per call. Up to 2 fix attempts per task.
 - Sandbox: docker (network blocked).
@@ -11,30 +11,30 @@ Run `20261118T231252Z`, started 2026-11-18T23:12:52.103365+00:00 and finished 20
 
 ### Headline: cost and quality by policy
 
-Workload cost is the mean cost of each task, summed over all 2 tasks. The range is the cheapest and dearest full repetition. Change is against `opus`. Pass rate is over every task run. First-try rate is the share of task runs that passed with no fix attempt.
+Workload cost is the mean cost of each task, summed over all 2 tasks. The range is the cheapest and dearest full repetition. Change is against `opus`. Pass rate is over every task run. First-try rate is the share of task runs that passed with no fix attempt, with its 95% Wilson interval: two policies whose intervals overlap are not shown to differ by this run.
 
 | Policy | Workload cost | Range over reps | Cost vs baseline | Pass rate | First-try rate | Fix attempts | Cost per passed task |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `opus` | $0.56 | $0.56 – $0.56 | baseline | 100% | 50% | 1 | $0.28 |
-| `routed` | $0.48 | $0.48 – $0.48 | -14% | 50% | 50% | 2 | $0.48 |
-| `routed_cached` | $0.39 | $0.39 – $0.39 | -29% | 50% | 50% | 2 | $0.39 |
-| `opus_cached` | $0.37 | $0.37 – $0.37 | -33% | 100% | 100% | 0 | $0.19 |
-| `sonnet_cached` | $0.19 | $0.19 – $0.19 | -65% | 100% | 100% | 0 | $0.0974 |
-| `sonnet` | $0.19 | $0.19 – $0.19 | -66% | 100% | 100% | 0 | $0.0936 |
-| `haiku_cached` | $0.0302 | $0.0302 – $0.0302 | -95% | 50% | 50% | 2 | $0.0302 |
-| `haiku` | $0.0301 | $0.0301 – $0.0301 | -95% | 50% | 50% | 2 | $0.0301 |
+| `opus` | $0.56 | $0.56 to $0.56 | baseline | 100% | 50% (9% to 91%) | 1 | $0.28 |
+| `routed` | $0.48 | $0.48 to $0.48 | -14% | 50% | 50% (9% to 91%) | 2 | $0.48 |
+| `routed_cached` | $0.39 | $0.39 to $0.39 | -29% | 50% | 50% (9% to 91%) | 2 | $0.39 |
+| `opus_cached` | $0.37 | $0.37 to $0.37 | -33% | 100% | 100% (34% to 100%) | 0 | $0.19 |
+| `sonnet_cached` | $0.19 | $0.19 to $0.19 | -65% | 100% | 100% (34% to 100%) | 0 | $0.0974 |
+| `sonnet` | $0.19 | $0.19 to $0.19 | -66% | 100% | 100% (34% to 100%) | 0 | $0.0936 |
+| `haiku_cached` | $0.0302 | $0.0302 to $0.0302 | -95% | 50% | 50% (9% to 91%) | 2 | $0.0302 |
+| `haiku` | $0.0301 | $0.0301 to $0.0301 | -95% | 50% | 50% (9% to 91%) | 2 | $0.0301 |
 
 
 ### Caching on its own
 
-Each pair runs the same models on the same steps. The only difference is `cache_control` on the shared system prompt. Cache-read share is the fraction of prompt tokens served from the cache.
+Each pair runs the same models on the same steps. The only difference is `cache_control` on the shared system prompt. Rep range compares repetition k of each; repetitions are independent, so it shows spread, not a paired effect. Cache writes counts the calls that paid the write premium. Cache-read share is the fraction of prompt tokens served from the cache.
 
-| Models | Uncached | Cached | Change | Cache-read share | Pass rate |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `opus` | $0.56 | $0.37 | -33% | 33% | 100% → 100% |
-| `sonnet` | $0.19 | $0.19 | +4% | 32% | 100% → 100% |
-| `haiku` | $0.0301 | $0.0302 | +1% | 37% | 50% → 50% |
-| `routed` | $0.48 | $0.39 | -18% | 20% | 50% → 50% |
+| Models | Uncached | Cached | Change | Rep range | Cache writes | Cache-read share | Pass rate |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `opus` | $0.56 | $0.37 | -33% | -33% to -33% | 1 (1,839 tokens) | 33% | 100% → 100% |
+| `sonnet` | $0.19 | $0.19 | +4% | +4% to +4% | 1 (1,841 tokens) | 32% | 100% → 100% |
+| `haiku` | $0.0301 | $0.0302 | +1% | +1% to +1% | 1 (1,840 tokens) | 37% | 50% → 50% |
+| `routed` | $0.48 | $0.39 | -18% | -18% to -18% | 2 (3,678 tokens) | 20% | 50% → 50% |
 
 
 ### Where the money goes

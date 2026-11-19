@@ -70,6 +70,18 @@ def test_judge_requires_a_clean_pytest_summary() -> None:
     assert not judge(0, "2 passed, 1 failed in 0.1s").passed
     assert not judge(0, "2 passed, 1 error in 0.1s").passed
     assert not judge(1, "3 passed in 0.1s").passed
+    assert not judge(0, "2 passed, 1 skipped in 0.1s").passed
+    assert not judge(0, "3 passed, 1 deselected in 0.1s").passed
+
+
+def test_skipping_tests_from_the_solution_is_not_a_pass(sandbox) -> None:
+    """Generated code can import pytest and skip the tests that would fail."""
+    cheat = "import pytest\npytest.skip('nothing to see', allow_module_level=True)\n"
+    tests = (
+        TESTS + "\n\ndef test_other():\n    from solution import add\n    assert add(1, 1) == 2\n"
+    )
+    result = sandbox.run(tests, cheat)
+    assert not result.passed, result.output
 
 
 def test_infinite_loop_times_out(sandbox) -> None:

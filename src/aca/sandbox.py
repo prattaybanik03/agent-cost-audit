@@ -58,6 +58,7 @@ class Sandbox(Protocol):
 
 
 _COUNTS = re.compile(r"(\d+) (passed|failed|error|errors)\b")
+_SKIPPED = re.compile(r"\b\d+ (skipped|xfailed|xpassed|deselected)\b")
 
 
 def pytest_counts(output: str) -> tuple[int, int]:
@@ -72,9 +73,11 @@ def pytest_counts(output: str) -> tuple[int, int]:
 
 
 def judge(returncode: int, output: str) -> TestResult:
-    """A pass needs exit code 0 and a pytest summary with passes and no failures."""
+    """A pass needs exit code 0 and a pytest summary with passes, no failures, and no skipped or
+    deselected tests. The hidden tests never skip, so a skip means the code under test caused it
+    (for example by calling pytest.skip), and that is not a pass."""
     passed, failed = pytest_counts(output)
-    ok = returncode == 0 and passed > 0 and failed == 0
+    ok = returncode == 0 and passed > 0 and failed == 0 and not _SKIPPED.search(output)
     return TestResult(passed=ok, output=truncate(output))
 
 
