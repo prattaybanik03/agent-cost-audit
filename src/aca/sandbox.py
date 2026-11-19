@@ -92,6 +92,14 @@ def truncate(output: str) -> str:
 def _write_workdir(root: Path, test_code: str, solution_code: str) -> None:
     (root / "solution.py").write_text(solution_code, encoding="utf-8")
     (root / "test_task.py").write_text(test_code, encoding="utf-8")
+    # On Linux, TemporaryDirectory is private to its owner (0700), and the container runs as
+    # the unprivileged user 65534, which then cannot read the mounted code at all. Make the
+    # folder and files world-readable; the mount is read-only and holds no secrets. Windows
+    # bind mounts ignore these bits, which is why this only fails on a Linux host.
+    if os.name != "nt":
+        root.chmod(0o755)
+        for path in root.iterdir():
+            path.chmod(0o644)
 
 
 class SubprocessSandbox:

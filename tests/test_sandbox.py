@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import stat
+
 import pytest
 
 from aca.agent import Task
@@ -8,6 +11,7 @@ from aca.sandbox import (
     DockerSandbox,
     SandboxError,
     SubprocessSandbox,
+    _write_workdir,
     as_test_runner,
     docker_ready,
     judge,
@@ -147,6 +151,17 @@ def test_missing_image_is_a_sandbox_error_not_a_test_failure() -> None:
     sandbox = DockerSandbox(timeout_s=20, image="aca-sandbox:this-tag-does-not-exist")
     with pytest.raises(SandboxError):
         sandbox.run(TESTS, SOLUTION)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits; Windows mounts ignore them")
+def test_workdir_is_readable_by_the_container_user(tmp_path) -> None:
+    """Regression: a 0700 temp folder made every Docker test fail on Linux hosts."""
+    work = tmp_path / "work"
+    work.mkdir(mode=0o700)
+    _write_workdir(work, TESTS, SOLUTION)
+    assert stat.S_IMODE(work.stat().st_mode) == 0o755
+    for path in work.iterdir():
+        assert stat.S_IMODE(path.stat().st_mode) == 0o644
 
 
 def test_truncate_keeps_the_start_and_the_end() -> None:
