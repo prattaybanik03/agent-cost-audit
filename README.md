@@ -254,4 +254,4 @@ The checks that back the numbers are all in `tests/` and need no API key. The CI
 - sandbox tests showing no network, no file writes, no visible API key, and no pass for code that exits early or skips tests;
 - the budget cap, pricing and cache accounting.
 
-212 tests in all, plus lint and type checks. CI actions are pinned to commit SHAs and the sandbox image to a digest. A dependency audit of the 45 locked packages found no known vulnerabilities on 19 November 2026.
+213 tests in all, plus lint and type checks. CI actions are pinned to commit SHAs and the sandbox image to a digest. A dependency audit of the 45 locked packages found no known vulnerabilities on 19 November 2026.
